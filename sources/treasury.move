@@ -10,8 +10,26 @@ module controlled_treasury::treasury {
     use sui::coin::{Self, Coin, DenyCap, TreasuryCap};
     use sui::deny_list::{Self, DenyList};
 
+
+    // A smart contract to manage the trasury and associated caps of a controlled coin.
+
+    // Features:
+    // - An admin can set permissions for different operations, and delete permissions, with effcient (immediate) revocation
+    // - A deny permission allow modifying the deny list for this coin.
+    // - A whitelist permission allows adding and removing addresses of market makets receivng minted and burning coins.
+    // - A mint permission allows minting coins to a whitelisted address, within some limit.
+    // - A burn permission allows burning coins from a whitelisted address.
+    // - The treasury contract never holds any coins, they are immediately transfered on mint or burn by others.
+    // - All addresses holding permissions can be multi-sigs.
+    // - Events are emitted to keep track of mint and burn events.
+
+    // Still TODO features:
+    // - Allow cancelations of a partially authorized actions.
+    // - Allow coordination of a multi-sig action on chain.
+
     // A structure that wrapps the treasury cap of a coin and adds capabilities to so
-    // that operations are controlled by a more granular and flexible policy.
+    // that operations are controlled by a more granular and flexible policy. Can wrap
+    // the capavilities after calling the constructor of a controlled coin.
     // Note: Upgrade cap can also be added to allow for upgrades
     struct ControlledTreasury<phantom T : key> has key, store {
         id : UID,
