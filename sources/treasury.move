@@ -27,6 +27,13 @@ module controlled_treasury::treasury {
     // - Allow cancelations of a partially authorized actions.
     // - Allow coordination of a multi-sig action on chain.
 
+    // Architecture notes:
+    // - The treasury contract is a public object that can be shared with others.
+    // - The treasury contract has a bag of capabilities that can be added and removed by the admin.
+    // - Whitelist entries are also represented as capabilities in the bag.
+    // - The treasury contract has a deny list that can be modified by the deny list capability.
+    // - When calling a function you indicate the name of the capability in the bag to authorize the action.
+
     // A structure that wrapps the treasury cap of a coin and adds capabilities to so
     // that operations are controlled by a more granular and flexible policy. Can wrap
     // the capavilities after calling the constructor of a controlled coin.
