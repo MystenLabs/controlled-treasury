@@ -23,7 +23,7 @@ module controlled_treasury::treasury {
 
     use sui::object::{Self, UID};
     use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
+    use sui::tx_context::{sender, TxContext};
     use sui::bag::{Bag, Self};
     use sui::event;
 
@@ -33,24 +33,20 @@ module controlled_treasury::treasury {
 
     /// The Capability record does not exist.
     const ENoAuthRecord: u64 = 0;
-    /// The sender is not authorized to perform the action.
-    const ENotAuthorized: u64 = 1;
     /// The limit for minting has been exceeded.
-    const ELimitExceeded: u64 = 2;
+    const ELimitExceeded: u64 = 1;
     /// The capability record does not exist.
-    const ENoCapRecord: u64 = 3;
+    const ENoCapRecord: u64 = 2;
     /// Trying to add a capability that already exists.
-    const ERecordExists: u64 = 4;
+    const ERecordExists: u64 = 3;
     /// Trying to add an address that is already on denylist.
-    const EDenyEntryExists: u64 = 5;
+    const EDenyEntryExists: u64 = 4;
     /// Trying to remove an address that is not on denylist.
-    const ENoDenyEntry: u64 = 6;
+    const ENoDenyEntry: u64 = 5;
     /// Trying to add a whitelist entry that already exists.
-    const EWhitelistRecordExists: u64 = 7;
+    const EWhitelistRecordExists: u64 = 6;
     /// Trying to remove a whitelist entry that does not exist.
-    const ENoWhitelistRecord: u64 = 8;
-
-
+    const ENoWhitelistRecord: u64 = 7;
 
     // A structure that wrapps the treasury cap of a coin and adds capabilities to so
     // that operations are controlled by a more granular and flexible policy. Can wrap
@@ -65,30 +61,19 @@ module controlled_treasury::treasury {
     }
 
     /// An administrator capability that may manage permissions
-    struct AdminCap has store, drop {
-        owner: address,
-    }
+    struct AdminCap has store, drop {}
 
     /// A risk manager capability that managed KYC addresses
-    struct WhitelistCap has store, drop {
-        owner: address,
-    }
+    struct WhitelistCap has store, drop {}
 
     /// A whitelist entry signifies that the address is authorized to burn, and safe to mint to
-    struct WhitelistEntry has store, drop {
-        remote_address: address,
-    }
+    struct WhitelistEntry has store, drop {}
 
     /// Define a mint capability that may mint coins, with a limit
-    struct MintCap has store, drop {
-        owner: address,
-        limit: u64,
-    }
+    struct MintCap has store, drop { limit: u64 }
 
     /// Define a capability to modify the deny list
-    struct DenyMutCap has store, drop {
-        owner: address,
-    }
+    struct DenyMutCap has store, drop { }
 
     // Define a few events for auditing
     // === Events ===
@@ -106,34 +91,36 @@ module controlled_treasury::treasury {
     // === DF Keys ===
 
     /// Namespace for dynamic fields: one for each of the Cap's.
-    struct TypedKey<phantom T> has copy, store, drop { key: vector<u8> }
+    struct RoleKey<phantom T> has copy, store, drop { owner: address }
 
     // Note all "address" can represent multi-signature addresses and be authorized at any threshold
 
     // Constructor functions for capabilities
-    public fun new_admin_cap(owner: address): AdminCap {
-        AdminCap { owner }
+    public fun new_admin_cap(): AdminCap {
+        AdminCap {}
     }
 
-    public fun new_whitelist_cap(owner: address): WhitelistCap {
-        WhitelistCap { owner }
+    public fun new_whitelist_cap(): WhitelistCap {
+        WhitelistCap {}
     }
 
-    public fun new_whitelist_entry(remote_address: address): WhitelistEntry {
-        WhitelistEntry { remote_address }
+    public fun new_whitelist_entry(): WhitelistEntry {
+        WhitelistEntry {}
     }
 
-    public fun new_mint_cap(owner: address, limit: u64): MintCap {
-        MintCap { owner, limit }
+    public fun new_mint_cap(limit: u64): MintCap {
+        MintCap { limit }
     }
 
-    public fun new_deny_mut_cap(owner: address): DenyMutCap {
-        DenyMutCap { owner }
+    public fun new_deny_mut_cap(): DenyMutCap {
+        DenyMutCap {}
     }
 
     /// Create a new controlled treasury by wrapping the treasury cap of a coin
     /// Th treasure becomes a public object with an initial Admin capbility assigned to
     /// the owner of the treasury as provided.
+    ///
+    /// The `ControlledTreasury` has to be `share`d after the creation.
     public fun new<T>(
         treasury_cap: TreasuryCap<T>,
         deny_cap: DenyCap<T>,
@@ -146,7 +133,7 @@ module controlled_treasury::treasury {
             deny_cap,
             own_capabilities: bag::new(ctx),
         };
-        add_cap(&mut treasury, b"admin", AdminCap { owner });
+        add_cap(&mut treasury, owner, AdminCap {});
         treasury
     }
 
@@ -156,14 +143,12 @@ module controlled_treasury::treasury {
         transfer::share_object(treasury);
     }
 
+    /// Unpack the `ControlledTreasury` and return the treasury cap, deny cap
+    /// and the Bag. The Bag must be cleared by the admin to be unpacked
     public fun deconstruct<T>(
-        treasury: ControlledTreasury<T>, auth: vector<u8>, ctx: &mut TxContext
+        treasury: ControlledTreasury<T>, ctx: &mut TxContext
     ): (TreasuryCap<T>, DenyCap<T>, Bag) {
-        assert!(has_cap<T, AdminCap>(&treasury, auth), ENoAuthRecord);
-
-        // Authorize sender has an admin cap
-        let AdminCap { owner } = get_cap(&treasury, auth);
-        assert!(owner == &tx_context::sender(ctx), ENotAuthorized);
+        assert!(has_cap<T, AdminCap>(&treasury, sender(ctx)), ENoAuthRecord);
 
         // Deconstruct the structure and return the parts
         let ControlledTreasury { id, treasury_cap, deny_cap, own_capabilities } = treasury;
@@ -176,78 +161,57 @@ module controlled_treasury::treasury {
     /// Authorization checks that a capability under the given name is owned by the caller.
     public fun add_capability<T, C: store + drop>(
         treasury: &mut ControlledTreasury<T>,
-        auth: vector<u8>,
-        name: vector<u8>,
+        for: address,
         cap: C,
         ctx: &mut TxContext
     ) {
-        assert!(has_cap<T, AdminCap>(treasury, auth), ENoAuthRecord);
-        assert!(!has_cap<T, C>(treasury, name), ERecordExists);
-
-        // Authorize sender has an admin cap
-        let AdminCap { owner } = get_cap(treasury, auth);
-        assert!(owner == &tx_context::sender(ctx), ENotAuthorized);
+        assert!(has_cap<T, AdminCap>(treasury, sender(ctx)), ENoAuthRecord);
+        assert!(!has_cap<T, C>(treasury, for), ERecordExists);
 
         // Add the capability to the treasury
-        add_cap(treasury, name, cap);
+        add_cap(treasury, for, cap);
     }
 
     /// Allow the admin to remove capabilities from the treasury
     /// Authorization checks that a capability under the given name is owned by the caller.
     public fun remove_capability<T, C: store + drop>(
         treasury: &mut ControlledTreasury<T>,
-        auth: vector<u8>,
-        name: vector<u8>,
+        for: address,
         ctx: &mut TxContext
     ) {
-        assert!(has_cap<T, AdminCap>(treasury, auth), ENoAuthRecord);
-        assert!(has_cap<T, C>(treasury, name), ENoCapRecord);
-
-        // Authorize sender has an admin cap
-        let AdminCap { owner } = get_cap(treasury, auth);
-        assert!(owner == &tx_context::sender(ctx), ENotAuthorized);
+        assert!(has_cap<T, AdminCap>(treasury, sender(ctx)), ENoAuthRecord);
+        assert!(has_cap<T, C>(treasury, for), ENoCapRecord);
 
         // Remove the capability from the treasury
-        let _: C = remove_cap(treasury, name);
+        let _: C = remove_cap(treasury, for);
     }
 
     /// Allow the owner of a whitelist capability to add a whitelist entry to the own_capabilities bag
     /// Authorization checks that a capability under the given name is owned by the caller.
     public fun add_whitelist_entry<T>(
         treasury: &mut ControlledTreasury<T>,
-        auth: vector<u8>,
-        name: vector<u8>,
-        entry: WhitelistEntry,
+        for: address,
         ctx: &mut TxContext
     ) {
-        assert!(has_cap<T, WhitelistCap>(treasury, auth), ENoAuthRecord);
-        assert!(!has_cap<T, WhitelistCap>(treasury, name), EWhitelistRecordExists);
+        assert!(has_cap<T, WhitelistCap>(treasury, sender(ctx)), ENoAuthRecord);
+        assert!(!has_cap<T, WhitelistCap>(treasury, for), EWhitelistRecordExists);
 
-        // Authorize sender has a whitelist cap
-        let WhitelistCap { owner } = get_cap(treasury, auth);
-        assert!(owner == &tx_context::sender(ctx), ENotAuthorized);
-
-        // Add the entry to the treasury
-        add_cap(treasury, name, entry);
+        // Add the entry to the treasury; key already contains the address
+        add_cap(treasury, for, WhitelistEntry {});
     }
 
     /// Allow the owner of a whitelist capability to remove a whitelist entry from the own_capabilities bag
     /// Authorization checks that a capability under the given name is owned by the caller.
     public fun remove_whitelist_entry<T>(
         treasury: &mut ControlledTreasury<T>,
-        auth: vector<u8>,
-        name: vector<u8>,
+        for: address,
         ctx: &mut TxContext
     ) {
-        assert!(has_cap<T, WhitelistCap>(treasury, auth), ENoAuthRecord);
-        assert!(has_cap<T, WhitelistEntry>(treasury, name), ENoWhitelistRecord);
-
-        // Authorize sender has a whitelist cap
-        let WhitelistCap { owner } = get_cap(treasury, auth);
-        assert!(owner == &tx_context::sender(ctx), ENotAuthorized);
+        assert!(has_cap<T, WhitelistCap>(treasury, sender(ctx)), ENoAuthRecord);
+        assert!(has_cap<T, WhitelistEntry>(treasury, for), ENoWhitelistRecord);
 
         // Now lets remove it.
-        let _: WhitelistEntry = remove_cap(treasury, name);
+        let _: WhitelistEntry = remove_cap(treasury, for);
     }
 
     // Deny list operations
@@ -255,16 +219,11 @@ module controlled_treasury::treasury {
     public fun add_deny_address<T>(
         treasury: &mut ControlledTreasury<T>,
         deny_list: &mut DenyList,
-        auth: vector<u8>,
         entry: address,
         ctx: &mut TxContext
     ) {
-        assert!(has_cap<T, DenyMutCap>(treasury, auth), ENoAuthRecord);
+        assert!(has_cap<T, DenyMutCap>(treasury, sender(ctx)), ENoAuthRecord);
         assert!(!coin::deny_list_contains<T>(deny_list, entry), EDenyEntryExists);
-
-        // Authorize sender has a whitelist cap
-        let DenyMutCap { owner } = get_cap(treasury, auth);
-        assert!(owner == &tx_context::sender(ctx), ENotAuthorized);
 
         // Add to deny list
         coin::deny_list_add<T>(deny_list, &mut treasury.deny_cap, entry, ctx);
@@ -273,16 +232,11 @@ module controlled_treasury::treasury {
     public fun remove_deny_address<T>(
         treasury: &mut ControlledTreasury<T>,
         deny_list: &mut DenyList,
-        auth: vector<u8>,
         entry: address,
         ctx: &mut TxContext
     ) {
-        assert!(has_cap<T, DenyMutCap>(treasury, auth), ENoAuthRecord);
+        assert!(has_cap<T, DenyMutCap>(treasury, sender(ctx)), ENoAuthRecord);
         assert!(coin::deny_list_contains<T>(deny_list, entry), ENoDenyEntry);
-
-        // Authorize sender has a whitelist cap
-        let DenyMutCap { owner } = get_cap(treasury, auth);
-        assert!(owner == &tx_context::sender(ctx), ENotAuthorized);
 
         // Add to deny list
         coin::deny_list_remove<T>(deny_list, &mut treasury.deny_cap, entry, ctx);
@@ -291,29 +245,24 @@ module controlled_treasury::treasury {
     // Allow an authorized multi-sig to mint and transfer coins to a whitelisted address
     public fun mint_and_transfer<T>(
         treasury: &mut ControlledTreasury<T>,
-        auth: vector<u8>,
-        to: vector<u8>,
+        to: address,
         amount: u64,
         ctx: &mut TxContext
     ) {
-        assert!(has_cap<T, MintCap>(treasury, auth), ENoAuthRecord);
+        assert!(has_cap<T, MintCap>(treasury, sender(ctx)), ENoAuthRecord);
         assert!(has_cap<T, WhitelistEntry>(treasury, to), ENoWhitelistRecord);
 
         // Authorize sender has a mint cap
-        let MintCap { owner, limit } = get_cap(treasury, auth);
-        assert!(owner == &tx_context::sender(ctx), ENotAuthorized);
+        let MintCap { limit } = get_cap(treasury, sender(ctx));
 
         // Check that the amount is within the mint limit
         // NOTE: Here we can have daily limits by updating the capability within
         //       the bag to "remember" totals for the day, for example.
         assert!(amount <= *limit, ELimitExceeded);
 
-        // Get the remote address from the whitelist entry.
-        let WhitelistEntry { remote_address } = get_cap(treasury, to);
-        let to = *remote_address;
-
         // Mint and transfer the coins atomically, no holding account of coins
         event::emit(MintEvent { amount, to });
+
         let new_coin = coin::mint(&mut treasury.treasury_cap, amount, ctx);
         transfer::public_transfer(new_coin, to);
     }
@@ -323,39 +272,38 @@ module controlled_treasury::treasury {
     public fun burn<T>(
         treasury: &mut ControlledTreasury<T>,
         coin: Coin<T>,
-        auth: vector<u8>,
         ctx: &mut TxContext
     ) {
-        assert!(has_cap<T, WhitelistEntry>(treasury, auth), ENoAuthRecord);
-
-        // Check that the sender is whitelisted, by loading it
-        let WhitelistEntry { remote_address } = get_cap(treasury, auth);
-        assert!(remote_address == &tx_context::sender(ctx), ENotAuthorized);
+        assert!(has_cap<T, WhitelistEntry>(treasury, sender(ctx)), ENoAuthRecord);
 
         // Burn the coins atomically, no holding of coins
-        event::emit(BurnEvent { amount: coin::value<T>(&coin), from: *remote_address });
+        event::emit(BurnEvent {
+            amount: coin::value(&coin),
+            from: sender(ctx)
+        });
+
         coin::burn(&mut treasury.treasury_cap, coin);
     }
 
     // === Utilities ===
 
     // Check if the treasury has a capability with the given key.
-    fun has_cap<T, Cap: store>(treasury: &ControlledTreasury<T>, key: vector<u8>): bool {
-        bag::contains_with_type<TypedKey<Cap>, Cap>(&treasury.own_capabilities, TypedKey<Cap> { key })
+    fun has_cap<T, Cap: store>(treasury: &ControlledTreasury<T>, owner: address): bool {
+        bag::contains_with_type<RoleKey<Cap>, Cap>(&treasury.own_capabilities, RoleKey<Cap> { owner })
     }
 
     /// Get a capability from the treasury.
-    fun get_cap<T, Cap: store + drop>(treasury: &ControlledTreasury<T>, key: vector<u8>): &Cap {
-        bag::borrow(&treasury.own_capabilities, TypedKey<Cap> { key })
+    fun get_cap<T, Cap: store + drop>(treasury: &ControlledTreasury<T>, owner: address): &Cap {
+        bag::borrow(&treasury.own_capabilities, RoleKey<Cap> { owner })
     }
 
     /// Adds a capability to the treasury.
-    fun add_cap<T, Cap: store + drop>(treasury: &mut ControlledTreasury<T>, key: vector<u8>, cap: Cap) {
-        bag::add(&mut treasury.own_capabilities, TypedKey<Cap> { key }, cap);
+    fun add_cap<T, Cap: store + drop>(treasury: &mut ControlledTreasury<T>, owner: address, cap: Cap) {
+        bag::add(&mut treasury.own_capabilities, RoleKey<Cap> { owner }, cap);
     }
 
     /// Removes a capability from the treasury.
-    fun remove_cap<T, Cap: store + drop>(treasury: &mut ControlledTreasury<T>, key: vector<u8>): Cap {
-        bag::remove(&mut treasury.own_capabilities, TypedKey<Cap> { key })
+    fun remove_cap<T, Cap: store + drop>(treasury: &mut ControlledTreasury<T>, owner: address): Cap {
+        bag::remove(&mut treasury.own_capabilities, RoleKey<Cap> { owner })
     }
 }
