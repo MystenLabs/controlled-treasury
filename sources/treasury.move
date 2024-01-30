@@ -268,7 +268,7 @@ module controlled_treasury::treasury {
     /// - the amount is higher than the defined limit on MintCap
     /// - the receiver is not Whitelisted
     ///
-    // Emits: MintEvent
+    /// Emits: MintEvent
     public fun mint_and_transfer<T>(
         treasury: &mut ControlledTreasury<T>,
         amount: u64,
