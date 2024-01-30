@@ -56,7 +56,7 @@ module controlled_treasury::treasury {
     // that operations are controlled by a more granular and flexible policy. Can wrap
     // the capavilities after calling the constructor of a controlled coin.
     // Note: Upgrade cap can also be added to allow for upgrades
-    struct ControlledTreasury<phantom T> has key, store {
+    struct ControlledTreasury<phantom T> has key {
         id: UID,
         /// The treasury cap of the Coin.
         treasury_cap: TreasuryCap<T>,
@@ -139,7 +139,7 @@ module controlled_treasury::treasury {
         deny_cap: DenyCap<T>,
         owner: address,
         ctx: &mut TxContext
-    ) {
+    ): ControlledTreasury<T> {
         let treasury = ControlledTreasury {
             id: object::new(ctx),
             treasury_cap,
@@ -147,6 +147,12 @@ module controlled_treasury::treasury {
             own_capabilities: bag::new(ctx),
         };
         add_cap(&mut treasury, b"admin", AdminCap { owner });
+        treasury
+    }
+
+    #[lint_allow(share_owned)]
+    /// Make the treasury a shared object.
+    public fun share<T>(treasury: ControlledTreasury<T>) {
         transfer::share_object(treasury);
     }
 
