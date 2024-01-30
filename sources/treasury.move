@@ -110,8 +110,8 @@ module controlled_treasury::treasury {
     public fun new_deny_mut_cap(): DenyMutCap { DenyMutCap {} }
 
     /// Create a new controlled treasury by wrapping the treasury cap of a coin
-    /// Th treasure becomes a public object with an initial Admin capbility assigned to
-    /// the owner of the treasury as provided.
+    /// The `ControlledTreasury` becomes a public shared object with an initial Admin capability assigned to
+    /// the provided owner.
     ///
     /// The `ControlledTreasury` has to be `share`d after the creation.
     public fun new<T>(
