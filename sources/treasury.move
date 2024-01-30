@@ -23,7 +23,7 @@ module controlled_treasury::treasury {
 
     use sui::object::{Self, UID};
     use sui::transfer;
-    use sui::tx_context::{sender, TxContext};
+    use sui::tx_context::{sender, epoch, TxContext};
     use sui::bag::{Bag, Self};
     use sui::event;
 
@@ -69,13 +69,16 @@ module controlled_treasury::treasury {
     /// A whitelist entry signifies that the address is authorized to burn, and safe to mint to
     struct WhitelistEntry has store, drop {}
 
-    /// Define a mint capability that may mint coins, with a limit
-    struct MintCap has store, drop { limit: u64 }
-
     /// Define a capability to modify the deny list
     struct DenyMutCap has store, drop { }
 
-    // Define a few events for auditing
+    /// Define a mint capability that may mint coins, with a limit
+    struct MintCap has store, drop {
+        limit: u64,
+        epoch: u64,
+        left: u64,
+    }
+
     // === Events ===
 
     struct MintEvent<phantom T> has copy, drop {
@@ -104,7 +107,13 @@ module controlled_treasury::treasury {
     public fun new_whitelist_cap(): WhitelistCap { WhitelistCap {} }
 
     /// Create a new `MintCap` to assign.
-    public fun new_mint_cap(limit: u64): MintCap { MintCap { limit } }
+    public fun new_mint_cap(limit: u64, ctx: &TxContext): MintCap {
+        MintCap {
+            limit,
+            epoch: epoch(ctx),
+            left: limit,
+        }
+    }
 
     /// Create a new `DenyMutCap` to assign.
     public fun new_deny_mut_cap(): DenyMutCap { DenyMutCap {} }
@@ -278,14 +287,20 @@ module controlled_treasury::treasury {
         assert!(has_cap<T, MintCap>(treasury, sender(ctx)), ENoAuthRecord);
         assert!(has_cap<T, WhitelistEntry>(treasury, to), ENoWhitelistRecord);
 
-        // Authorize sender has a mint cap
-        let MintCap { limit } = get_cap(treasury, sender(ctx));
+        // get the MintCap and check the limit; if a new epoch - reset it
+        let MintCap { limit, epoch, left } = get_cap_mut(treasury, sender(ctx));
 
-        // Check that the amount is within the mint limit
-        // NOTE: Here we can have daily limits by updating the capability within
-        //       the bag to "remember" totals for the day, for example.
-        assert!(amount <= *limit, ELimitExceeded);
+        // reset the limit if a new epoch
+        if (epoch(ctx) > *epoch) {
+            left = limit;
+            *epoch = epoch(ctx);
+        };
 
+        // Check that the amount is within the mint limit; update the limit
+        assert!(amount <= *left, ELimitExceeded);
+        *left = *left - amount;
+
+        // Emit the event and mint + transfer the coins
         event::emit(MintEvent<T> { amount, to });
         let new_coin = coin::mint(&mut treasury.treasury_cap, amount, ctx);
         transfer::public_transfer(new_coin, to);
@@ -320,9 +335,15 @@ module controlled_treasury::treasury {
         bag::contains_with_type<RoleKey<Cap>, Cap>(&treasury.own_capabilities, RoleKey<Cap> { owner })
     }
 
+    #[allow(unused_function)]
     /// Get a capability for the `owner`.
     fun get_cap<T, Cap: store + drop>(treasury: &ControlledTreasury<T>, owner: address): &Cap {
         bag::borrow(&treasury.own_capabilities, RoleKey<Cap> { owner })
+    }
+
+    /// Get a mutable ref to the capability for the `owner`.
+    fun get_cap_mut<T, Cap: store + drop>(treasury: &mut ControlledTreasury<T>, owner: address): &mut Cap {
+        bag::borrow_mut(&mut treasury.own_capabilities, RoleKey<Cap> { owner })
     }
 
     /// Adds a capability `cap` for `owner`.
