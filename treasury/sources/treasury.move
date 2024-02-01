@@ -140,7 +140,7 @@ module controlled_treasury::treasury {
     }
 
     #[lint_allow(share_owned)]
-    /// Make the treasury a shared object.
+    /// Make ControlledTreasury a shared object.
     public fun share<T>(treasury: ControlledTreasury<T>) {
         transfer::share_object(treasury);
     }
@@ -331,9 +331,11 @@ module controlled_treasury::treasury {
     // === Utilities ===
 
     /// Check if a capability `Cap` is assigned to the `owner`.
-    fun has_cap<T, Cap: store>(treasury: &ControlledTreasury<T>, owner: address): bool {
+    public fun has_cap<T, Cap: store>(treasury: &ControlledTreasury<T>, owner: address): bool {
         bag::contains_with_type<RoleKey<Cap>, Cap>(&treasury.own_capabilities, RoleKey<Cap> { owner })
     }
+
+    // === Private Utilities ===
 
     #[allow(unused_function)]
     /// Get a capability for the `owner`.
