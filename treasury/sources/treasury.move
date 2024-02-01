@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /// A smart contract to manage the treasury and associated caps of a controlled coin.
 /// Features:
 /// - An admin can set permissions for different operations, and delete permissions, with effcient (immediate) revocation
