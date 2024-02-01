@@ -1,0 +1,17 @@
+[package]
+name = "tests"
+edition = "2024.alpha"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "main", override = true }
+controlled_treasury = { local = "../treasury" }
+
+[addresses]
+tests = "0x0"
+
+# addresses used in testing
+admin = "0xA"      # admin
+wl_admin = "0xB"   # whitelist admin
+dl_admin = "0xC"   # denylist admin
+user = "0xD"       # user
+mint_admin = "0xE" # mint admin
