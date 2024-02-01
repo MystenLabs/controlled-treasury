@@ -20,16 +20,14 @@
 /// - The treasury contract has a deny list that can be modified by the deny list capability.
 /// - When calling a function you indicate the name of the capability in the bag to authorize the action.
 module controlled_treasury::treasury {
-
-    use sui::object::{Self, UID};
-    use sui::transfer;
+    use std::type_name;
     use sui::tx_context::{sender, epoch, TxContext};
-    use sui::bag::{Bag, Self};
-    use sui::event;
-
-    // Import moduled for Coin to get TreasuryCap
     use sui::coin::{Self, Coin, DenyCap, TreasuryCap};
     use sui::deny_list::DenyList;
+    use sui::object::{Self, UID};
+    use sui::bag::{Bag, Self};
+    use sui::transfer;
+    use sui::event;
 
     /// The Capability record does not exist.
     const ENoAuthRecord: u64 = 0;
@@ -47,6 +45,8 @@ module controlled_treasury::treasury {
     const EWhitelistRecordExists: u64 = 6;
     /// Trying to remove a whitelist entry that does not exist.
     const ENoWhitelistRecord: u64 = 7;
+    /// Trying to remove the last admin.
+    const EAdminsCantBeZero: u64 = 8;
 
     // A structure that wrapps the treasury cap of a coin and adds capabilities to so
     // that operations are controlled by a more granular and flexible policy. Can wrap
@@ -54,6 +54,9 @@ module controlled_treasury::treasury {
     // Note: Upgrade cap can also be added to allow for upgrades
     struct ControlledTreasury<phantom T> has key {
         id: UID,
+        /// Number of currently active admins.
+        /// Can't ever be zero, as the treasury would be locked.
+        admin_count: u8,
         /// The treasury cap of the Coin.
         treasury_cap: TreasuryCap<T>,
         deny_cap: DenyCap<T>,
@@ -133,6 +136,7 @@ module controlled_treasury::treasury {
             id: object::new(ctx),
             treasury_cap,
             deny_cap,
+            admin_count: 1,
             own_capabilities: bag::new(ctx),
         };
         add_cap(&mut treasury, owner, AdminCap {});
@@ -153,7 +157,13 @@ module controlled_treasury::treasury {
         assert!(has_cap<T, AdminCap>(&treasury, sender(ctx)), ENoAuthRecord);
 
         // Deconstruct the structure and return the parts
-        let ControlledTreasury { id, treasury_cap, deny_cap, own_capabilities } = treasury;
+        let ControlledTreasury {
+            id,
+            admin_count,
+            treasury_cap,
+            deny_cap,
+            own_capabilities
+        } = treasury;
         object::delete(id);
 
         (treasury_cap, deny_cap, own_capabilities)
@@ -176,6 +186,11 @@ module controlled_treasury::treasury {
         assert!(has_cap<T, AdminCap>(treasury, sender(ctx)), ENoAuthRecord);
         assert!(!has_cap<T, C>(treasury, for), ERecordExists);
 
+        // using a reflection trick to update admin count when adding a new admin
+        if (type_name::get<C>() == type_name::get<AdminCap>()) {
+            treasury.admin_count = treasury.admin_count + 1;
+        };
+
         add_cap(treasury, for, cap);
     }
 
@@ -192,6 +207,13 @@ module controlled_treasury::treasury {
     ) {
         assert!(has_cap<T, AdminCap>(treasury, sender(ctx)), ENoAuthRecord);
         assert!(has_cap<T, C>(treasury, for), ENoCapRecord);
+
+        // using a reflection trick to update admin count when removing an admin
+        // make sure there's at least one admin always
+        if (type_name::get<C>() == type_name::get<AdminCap>()) {
+            assert!(treasury.admin_count > 1, EAdminsCantBeZero);
+            treasury.admin_count = treasury.admin_count - 1;
+        };
 
         let _: C = remove_cap(treasury, for);
     }
@@ -330,7 +352,8 @@ module controlled_treasury::treasury {
 
     // === Utilities ===
 
-    /// Check if a capability `Cap` is assigned to the `owner`.
+    /// Check if a capability `Cap` is assigned to the `owner`. Publicly available for tests
+    /// and interoperability with other packages / modules.
     public fun has_cap<T, Cap: store>(treasury: &ControlledTreasury<T>, owner: address): bool {
         bag::contains_with_type<RoleKey<Cap>, Cap>(&treasury.own_capabilities, RoleKey<Cap> { owner })
     }

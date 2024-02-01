@@ -24,7 +24,7 @@ module tests::treasury_tests {
     /// For tests that are expected to fail to not deal with unused values.
     const EExpectedFailure: u64 = 1338;
 
-    // === Generic Behavior ===
+    // === Generic Behavior + Admin Features ===
 
     #[test]
     // Test that we can create a new treasury and destroy it.
@@ -73,6 +73,25 @@ module tests::treasury_tests {
         treasury.share()
     }
 
+    #[test, expected_failure(abort_code = treasury::EAdminsCantBeZero)]
+    // Scenario:
+    // 1. Admin adds a new admin
+    // 2. Second admin removes first and tries to remove themselves
+    fun test_remove_self() {
+        let ctx = &mut tx(@admin, 0);
+        let (treasury_cap, denycap) = otw::create_currency(ctx);
+        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
+
+        treasury.add_capability(@user, treasury::new_admin_cap(), ctx);
+
+        let ctx = &mut tx(@user, 1); // 2nd tx by user
+
+        treasury.remove_capability<OTW, AdminCap>(@admin, ctx);
+        treasury.remove_capability<OTW, AdminCap>(@user, ctx);
+
+        abort EExpectedFailure
+    }
+
     // === Denylist ===
 
     #[test]
@@ -95,6 +114,32 @@ module tests::treasury_tests {
 
         test_utils::destroy(deny_list);
         test_utils::destroy(treasury);
+    }
+
+    #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
+    // Scenario: admin tries to add a record to denylist without a denylist cap
+    fun add_denylist_entry_no_cap_fail() {
+        let ctx = &mut tx(@admin, 0);
+        let (treasury_cap, denycap) = otw::create_currency(ctx);
+        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
+        let mut deny_list = deny_list::new_for_testing(ctx);
+
+        treasury.add_deny_address(&mut deny_list, @user, ctx);
+
+        abort EExpectedFailure
+    }
+
+    #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
+    // Scenario: admin tries to add a record to denylist without a denylist cap
+    fun remove_denylist_entry_no_cap_fail() {
+        let ctx = &mut tx(@admin, 0);
+        let (treasury_cap, denycap) = otw::create_currency(ctx);
+        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
+        let mut deny_list = deny_list::new_for_testing(ctx);
+
+        treasury.remove_deny_address(&mut deny_list, @user, ctx);
+
+        abort EExpectedFailure
     }
 
     // === Whitelist & Mint/Burn ===
@@ -142,6 +187,30 @@ module tests::treasury_tests {
         abort EExpectedFailure
     }
 
+    #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
+    // Scenario: admin tries a whitelist operation without a whitelist cap
+    fun add_whitelist_entry_no_wl_cap_fail() {
+        let ctx = &mut tx(@admin, 0);
+        let (treasury_cap, denycap) = otw::create_currency(ctx);
+        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
+
+        treasury.add_whitelist_entry(@user, ctx);
+
+        abort EExpectedFailure
+    }
+
+    #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
+    // Scenario: admin tries to remove a whitelist entry without a whitelist cap
+    fun remove_whitelist_entry_no_wl_cap_fail() {
+        let ctx = &mut tx(@admin, 0);
+        let (treasury_cap, denycap) = otw::create_currency(ctx);
+        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
+
+        treasury.remove_whitelist_entry(@user, ctx);
+
+        abort EExpectedFailure
+    }
+
     // === Authorization Failures ===
 
     #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
@@ -166,30 +235,6 @@ module tests::treasury_tests {
 
         let ctx = &mut tx(@user, 1); // 2nd tx by user
         treasury.remove_capability<OTW, AdminCap>(@admin, ctx);
-
-        abort EExpectedFailure
-    }
-
-    #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
-    // Scenario: admin tries a whitelist operation without a whitelist cap
-    fun add_whitelist_entry_no_wl_cap_fail() {
-        let ctx = &mut tx(@admin, 0);
-        let (treasury_cap, denycap) = otw::create_currency(ctx);
-        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
-
-        treasury.add_whitelist_entry(@user, ctx);
-
-        abort EExpectedFailure
-    }
-
-    #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
-    // Scenario: admin tries to remove a whitelist entry without a whitelist cap
-    fun remove_whitelist_entry_no_wl_cap_fail() {
-        let ctx = &mut tx(@admin, 0);
-        let (treasury_cap, denycap) = otw::create_currency(ctx);
-        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
-
-        treasury.remove_whitelist_entry(@user, ctx);
 
         abort EExpectedFailure
     }

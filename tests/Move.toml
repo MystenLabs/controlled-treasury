@@ -3,7 +3,7 @@ name = "tests"
 edition = "2024.alpha"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "ds/test-only-denylist", override = true }
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "main", override = true }
 controlled_treasury = { local = "../treasury" }
 
 [addresses]
