@@ -14,15 +14,14 @@ module tests::treasury_tests {
     use controlled_treasury::treasury::{
         Self,
         AdminCap,
-        DenyMutCap,
         MintCap,
+        DenylistCap,
         WhitelistCap,
     };
 
-    /// For tests that are not implemented yet.
-    const ENotImplemented: u64 = 1337;
     /// For tests that are expected to fail to not deal with unused values.
-    const EExpectedFailure: u64 = 1338;
+    /// Using an abort code that can never be emitted by the tested module.
+    const EExpectedFailure: u64 = 1337;
 
     // === Generic Behavior + Admin Features ===
 
@@ -51,25 +50,25 @@ module tests::treasury_tests {
         assert!(treasury.has_cap<OTW, AdminCap>(@admin), 0);
 
         treasury.add_capability(@admin, treasury::new_mint_cap(1000, ctx), ctx);
-        treasury.add_capability(@admin, treasury::new_deny_mut_cap(), ctx);
+        treasury.add_capability(@admin, treasury::new_denylist_cap(), ctx);
         treasury.add_capability(@admin, treasury::new_whitelist_cap(), ctx);
 
         // check that newly added capabilities are there
         assert!(treasury.has_cap<OTW, MintCap>(@admin), 1);
-        assert!(treasury.has_cap<OTW, DenyMutCap>(@admin), 2);
+        assert!(treasury.has_cap<OTW, DenylistCap>(@admin), 2);
         assert!(treasury.has_cap<OTW, WhitelistCap>(@admin), 3);
 
         // remove all of them
         treasury.remove_capability<OTW, MintCap>(@admin, ctx);
-        treasury.remove_capability<OTW, DenyMutCap>(@admin, ctx);
+        treasury.remove_capability<OTW, DenylistCap>(@admin, ctx);
         treasury.remove_capability<OTW, WhitelistCap>(@admin, ctx);
 
         // make sure they're removed
         assert!(!treasury.has_cap<OTW, MintCap>(@admin), 4);
-        assert!(!treasury.has_cap<OTW, DenyMutCap>(@admin), 5);
+        assert!(!treasury.has_cap<OTW, DenylistCap>(@admin), 5);
         assert!(!treasury.has_cap<OTW, WhitelistCap>(@admin), 6);
 
-        // gracefully share object
+        // share object
         treasury.share()
     }
 
@@ -77,7 +76,7 @@ module tests::treasury_tests {
     // Scenario:
     // 1. Admin adds a new admin
     // 2. Second admin removes first and tries to remove themselves
-    fun test_remove_self() {
+    fun test_remove_self_fail() {
         let ctx = &mut tx(@admin, 0);
         let (treasury_cap, denycap) = otw::create_currency(ctx);
         let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
@@ -88,6 +87,32 @@ module tests::treasury_tests {
 
         treasury.remove_capability<OTW, AdminCap>(@admin, ctx);
         treasury.remove_capability<OTW, AdminCap>(@user, ctx);
+
+        abort EExpectedFailure
+    }
+
+    #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
+    // Scenario: not an admin tries to add a whitelist cap to treasury
+    fun test_add_capability_not_admin_fail() {
+        let ctx = &mut tx(@admin, 0);
+        let (treasury_cap, denycap) = otw::create_currency(ctx);
+        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
+
+        let ctx = &mut tx(@user, 1); // 2nd tx by user
+        treasury.add_capability(@user, treasury::new_whitelist_cap(), ctx);
+
+        abort EExpectedFailure
+    }
+
+    #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
+    // Scenario: user tries to remove admin cap from admin
+    fun remove_capability_not_admin_fail() {
+        let ctx = &mut tx(@admin, 0);
+        let (treasury_cap, denycap) = otw::create_currency(ctx);
+        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
+
+        let ctx = &mut tx(@user, 1); // 2nd tx by user
+        treasury.remove_capability<OTW, AdminCap>(@admin, ctx);
 
         abort EExpectedFailure
     }
@@ -104,13 +129,13 @@ module tests::treasury_tests {
         let (treasury_cap, denycap) = otw::create_currency(ctx);
         let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
 
-        treasury.add_capability(@dl_admin, treasury::new_deny_mut_cap(), ctx);
+        treasury.add_capability(@dl_admin, treasury::new_denylist_cap(), ctx);
 
         let ctx = &mut tx(@dl_admin, 1); // 2nd tx by dl_admin
         let mut deny_list = deny_list::new_for_testing(ctx);
 
-        treasury.add_deny_address(&mut deny_list, @user, ctx);
-        treasury.remove_deny_address(&mut deny_list, @user, ctx);
+        treasury.add_denylist_entry(&mut deny_list, @user, ctx);
+        treasury.remove_denylist_entry(&mut deny_list, @user, ctx);
 
         test_utils::destroy(deny_list);
         test_utils::destroy(treasury);
@@ -124,7 +149,7 @@ module tests::treasury_tests {
         let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
         let mut deny_list = deny_list::new_for_testing(ctx);
 
-        treasury.add_deny_address(&mut deny_list, @user, ctx);
+        treasury.add_denylist_entry(&mut deny_list, @user, ctx);
 
         abort EExpectedFailure
     }
@@ -137,7 +162,7 @@ module tests::treasury_tests {
         let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
         let mut deny_list = deny_list::new_for_testing(ctx);
 
-        treasury.remove_deny_address(&mut deny_list, @user, ctx);
+        treasury.remove_denylist_entry(&mut deny_list, @user, ctx);
 
         abort EExpectedFailure
     }
@@ -150,7 +175,7 @@ module tests::treasury_tests {
     // 3. `wl_admin` adds `user` to the whitelist
     // 4. `mint_admin` mints 1000 tokens to `user`
     // 5. `user` burns 1000 tokens
-    fun test_whitelist_mint() {
+    fun test_whitelist_mint_and_burn() {
         let ctx = &mut tx(@admin, 0);
         let (treasury_cap, denycap) = otw::create_currency(ctx);
         let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
@@ -168,6 +193,49 @@ module tests::treasury_tests {
         treasury.burn(coin::mint_for_testing<OTW>(1000, ctx), ctx);
 
         test_utils::destroy(treasury);
+    }
+
+    #[test]
+    // Scenario:
+    // 1. admin assigns a whitelist role to self and mint role to self;
+    // 2. adds `user` to the whitelist
+    // 3. mints 10_000 tokens to `user` (limit exceeded)
+    // 4. epoch advances and admin mints 10_000 tokens to `user` (limit not exceeded)
+    fun mint_limit_updated_with_epoch() {
+        let ctx = &mut tx(@admin, 0);
+        let (treasury_cap, denycap) = otw::create_currency(ctx);
+        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
+
+        treasury.add_capability(@admin, treasury::new_whitelist_cap(), ctx);
+        treasury.add_capability(@admin, treasury::new_mint_cap(10_000, ctx), ctx);
+        treasury.add_whitelist_entry(@user, ctx);
+        treasury.mint_and_transfer(10_000, @user, ctx);
+
+        let ctx = &mut tx_with_epoch(@admin, 1, 2); // 2nd tx by admin (2nd epoch)
+        treasury.mint_and_transfer(10_000, @user, ctx);
+
+        test_utils::destroy(treasury);
+    }
+
+    #[test, expected_failure(abort_code = treasury::EMintLimitExceeded)]
+    // Scenario:
+    // 1. admin assigns a whitelist role to self and mint role to self;
+    // 2. adds `user` to the whitelist
+    // 3. mints 10_000 tokens to `user` (full limit)
+    // 4. tries to mint 10_000 tokens to `user` (fails due to limit)
+    fun mint_limit_per_epoch_fail() {
+        let ctx = &mut tx(@admin, 0);
+        let (treasury_cap, denycap) = otw::create_currency(ctx);
+        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
+
+        treasury.add_capability(@admin, treasury::new_whitelist_cap(), ctx);
+        treasury.add_capability(@admin, treasury::new_mint_cap(10_000, ctx), ctx);
+        treasury.add_whitelist_entry(@user, ctx);
+
+        treasury.mint_and_transfer(10_000, @user, ctx);
+        treasury.mint_and_transfer(10_000, @user, ctx); // fails
+
+        abort EExpectedFailure
     }
 
     #[test, expected_failure(abort_code = treasury::ENoWhitelistRecord)]
@@ -211,34 +279,6 @@ module tests::treasury_tests {
         abort EExpectedFailure
     }
 
-    // === Authorization Failures ===
-
-    #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
-    // Scenario: not an admin tries to add a whitelist cap to treasury
-    fun test_add_capability_not_admin_fail() {
-        let ctx = &mut tx(@admin, 0);
-        let (treasury_cap, denycap) = otw::create_currency(ctx);
-        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
-
-        let ctx = &mut tx(@user, 1); // 2nd tx by user
-        treasury.add_capability(@user, treasury::new_whitelist_cap(), ctx);
-
-        abort EExpectedFailure
-    }
-
-    #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
-    // Scenario: user tries to remove admin cap from admin
-    fun remove_capability_not_admin_fail() {
-        let ctx = &mut tx(@admin, 0);
-        let (treasury_cap, denycap) = otw::create_currency(ctx);
-        let mut treasury = treasury::new(treasury_cap, denycap, @admin, ctx);
-
-        let ctx = &mut tx(@user, 1); // 2nd tx by user
-        treasury.remove_capability<OTW, AdminCap>(@admin, ctx);
-
-        abort EExpectedFailure
-    }
-
     #[test, expected_failure(abort_code = treasury::ENoAuthRecord)]
     // Scenario: admin tries a mint operation without a mint cap
     fun mint_no_mint_cap_fail() {
@@ -261,19 +301,6 @@ module tests::treasury_tests {
         treasury.burn(coin::mint_for_testing<OTW>(1000, ctx), ctx);
 
         abort EExpectedFailure
-    }
-
-    #[test, expected_failure]
-    // TODO: make this test work.
-    fun test_remove_self_fail() {
-        let ctx = &mut tx(@admin, 0);
-        let (treasury_cap, denycap) = otw::create_currency(ctx);
-        let mut treasury = treasury::new(treasury_cap, denycap, @0x0, ctx);
-
-        treasury.remove_capability<OTW, AdminCap>(@0x0, ctx);
-        test_utils::destroy(treasury);
-
-        abort ENotImplemented
     }
 
     // === Test Helpers ===

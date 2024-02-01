@@ -32,7 +32,7 @@ module controlled_treasury::treasury {
     /// The Capability record does not exist.
     const ENoAuthRecord: u64 = 0;
     /// The limit for minting has been exceeded.
-    const ELimitExceeded: u64 = 1;
+    const EMintLimitExceeded: u64 = 1;
     /// The capability record does not exist.
     const ENoCapRecord: u64 = 2;
     /// Trying to add a capability that already exists.
@@ -73,7 +73,7 @@ module controlled_treasury::treasury {
     struct WhitelistEntry has store, drop {}
 
     /// Define a capability to modify the deny list
-    struct DenyMutCap has store, drop { }
+    struct DenylistCap has store, drop { }
 
     /// Define a mint capability that may mint coins, with a limit
     struct MintCap has store, drop {
@@ -118,8 +118,8 @@ module controlled_treasury::treasury {
         }
     }
 
-    /// Create a new `DenyMutCap` to assign.
-    public fun new_deny_mut_cap(): DenyMutCap { DenyMutCap {} }
+    /// Create a new `DenylistCap` to assign.
+    public fun new_denylist_cap(): DenylistCap { DenylistCap {} }
 
     /// Create a new controlled treasury by wrapping the treasury cap of a coin
     /// The `ControlledTreasury` becomes a public shared object with an initial Admin capability assigned to
@@ -256,37 +256,37 @@ module controlled_treasury::treasury {
 
     // === Deny list operations ===
 
-    /// Adds an `entry` to the Denylist. Requires sender to have a `DenyMutCap`
+    /// Adds an `entry` to the Denylist. Requires sender to have a `DenylistCap`
     /// assigned to them.
     ///
     /// Aborts if:
     /// - sender does not have this capability
     /// - denylist already contains the record
-    public fun add_deny_address<T>(
+    public fun add_denylist_entry<T>(
         treasury: &mut ControlledTreasury<T>,
         deny_list: &mut DenyList,
         entry: address,
         ctx: &mut TxContext
     ) {
-        assert!(has_cap<T, DenyMutCap>(treasury, sender(ctx)), ENoAuthRecord);
+        assert!(has_cap<T, DenylistCap>(treasury, sender(ctx)), ENoAuthRecord);
         assert!(!coin::deny_list_contains<T>(deny_list, entry), EDenyEntryExists);
 
         coin::deny_list_add<T>(deny_list, &mut treasury.deny_cap, entry, ctx);
     }
 
-    /// Removes an `entry` from the Denylist. Requires sender to have a `DenyMutCap`
+    /// Removes an `entry` from the Denylist. Requires sender to have a `DenylistCap`
     /// assigned to them.
     ///
     /// Aborts if:
     /// - sender does not have this capability
     /// - denylist does not contain this record
-    public fun remove_deny_address<T>(
+    public fun remove_denylist_entry<T>(
         treasury: &mut ControlledTreasury<T>,
         deny_list: &mut DenyList,
         entry: address,
         ctx: &mut TxContext
     ) {
-        assert!(has_cap<T, DenyMutCap>(treasury, sender(ctx)), ENoAuthRecord);
+        assert!(has_cap<T, DenylistCap>(treasury, sender(ctx)), ENoAuthRecord);
         assert!(coin::deny_list_contains<T>(deny_list, entry), ENoDenyEntry);
 
         coin::deny_list_remove<T>(deny_list, &mut treasury.deny_cap, entry, ctx);
@@ -319,7 +319,7 @@ module controlled_treasury::treasury {
         };
 
         // Check that the amount is within the mint limit; update the limit
-        assert!(amount <= *left, ELimitExceeded);
+        assert!(amount <= *left, EMintLimitExceeded);
         *left = *left - amount;
 
         // Emit the event and mint + transfer the coins
