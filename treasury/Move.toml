@@ -6,4 +6,10 @@ version = "0.0.1"
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
 
 [addresses]
+quorum = "0x0"
 controlled_treasury = "0x0"
+
+# for tests
+alice = "0xa11ce"
+bob = "0xb0b"
+carl = "0xca61"
