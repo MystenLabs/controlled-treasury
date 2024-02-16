@@ -76,7 +76,7 @@ module controlled_treasury::treasury {
     struct WhitelistEntry has store, drop {}
 
     /// Define a capability to modify the deny list
-    struct DenylistCap has store, drop { }
+    struct DenylistCap has store, drop {}
 
     /// Define a mint capability that may mint coins, with a limit
     struct MintCap has store, drop {
