@@ -4,7 +4,6 @@
 #[test_only]
 #[allow(unused_function)]
 module tests::treasury_tests {
-    use sui::tx_context::{Self, TxContext};
     use sui::test_utils;
     use sui::deny_list;
     use sui::coin;

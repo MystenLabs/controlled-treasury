@@ -3,8 +3,6 @@
 
 #[test_only]
 module tests::otw {
-    use std::option;
-    use sui::tx_context::TxContext;
     use sui::coin::{Self, DenyCap, TreasuryCap};
     use sui::test_utils;
 
