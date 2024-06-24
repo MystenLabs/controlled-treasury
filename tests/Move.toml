@@ -10,8 +10,8 @@ controlled_treasury = { local = "../treasury" }
 tests = "0x0"
 
 # addresses used in testing
-admin = "0xA"      # admin
-wl_admin = "0xB"   # whitelist admin
-dl_admin = "0xC"   # denylist admin
-user = "0xD"       # user
-mint_admin = "0xE" # mint admin
+admin = "0xAA"      # admin
+wl_admin = "0xBB"   # whitelist admin
+dl_admin = "0xCC"   # denylist admin
+user = "0xDD"       # user
+mint_admin = "0xEE" # mint admin
